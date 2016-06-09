@@ -118,7 +118,7 @@ namespace gitstylebackupexplorer
                         {
                             if (key == nodeDirPath + "/" + nodeFileName)
                             {
-                                string sourceFile = fiConfigFileInfo.Directory.FullName + "\\" + HashToString(db.Version[nodeVersion].File[key].Hash);
+                                string sourceFile = fiConfigFileInfo.Directory.FullName + "\\Files\\" + HashToString(db.Version[nodeVersion].File[key].Hash);
                                 string destFile = saveFile.FileName;
 
                                 try
@@ -150,7 +150,7 @@ namespace gitstylebackupexplorer
                         {
                             if (key.StartsWith(nodeDirPath))
                             {
-                                string sourceFile = fiConfigFileInfo.Directory.FullName + "\\" + HashToString(db.Version[nodeVersion].File[key].Hash);
+                                string sourceFile = fiConfigFileInfo.Directory.FullName + "\\Files\\" + HashToString(db.Version[nodeVersion].File[key].Hash);
                                 string destFile = key.Replace("/", "\\").Replace(nodeDirPath, saveFolder.SelectedPath);
 
                                 try

@@ -107,6 +107,7 @@ namespace gitstylebackupexplorer
                 if (nodeFileName != "")
                 {
                     //file
+                    string HashFileName = "";
                     SaveFileDialog saveFile = new SaveFileDialog();
                     saveFile.FileName = nodeFileName;
                     saveFile.OverwritePrompt = true;
@@ -118,7 +119,8 @@ namespace gitstylebackupexplorer
                         {
                             if (key == nodeDirPath + "/" + nodeFileName)
                             {
-                                string sourceFile = fiConfigFileInfo.Directory.FullName + "\\Files\\" + HashToString(db.Version[nodeVersion].File[key].Hash);
+                                HashFileName = HashToString(db.Version[nodeVersion].File[key].Hash);
+                                string sourceFile = fiConfigFileInfo.Directory.FullName + "\\Files\\" + HashFileName.Substring(0, 2) + "\\" + HashFileName;
                                 string destFile = saveFile.FileName;
 
                                 try
@@ -141,6 +143,7 @@ namespace gitstylebackupexplorer
                 else
                 {
                     //dir
+                    string HashFileName = "";
                     FolderBrowserDialog saveFolder = new FolderBrowserDialog();
                     if (saveFolder.ShowDialog() == DialogResult.OK)
                     {
@@ -150,7 +153,8 @@ namespace gitstylebackupexplorer
                         {
                             if (key.StartsWith(nodeDirPath))
                             {
-                                string sourceFile = fiConfigFileInfo.Directory.FullName + "\\Files\\" + HashToString(db.Version[nodeVersion].File[key].Hash);
+                                HashFileName = HashToString(db.Version[nodeVersion].File[key].Hash);
+                                string sourceFile = fiConfigFileInfo.Directory.FullName + "\\Files\\" + HashFileName.Substring(0,2) + "\\" + HashFileName;
                                 string destFile = key.Replace("/", "\\").Replace(nodeDirPath, saveFolder.SelectedPath);
 
                                 try

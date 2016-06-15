@@ -97,14 +97,14 @@
             // openBackupDBToolStripMenuItem
             // 
             this.openBackupDBToolStripMenuItem.Name = "openBackupDBToolStripMenuItem";
-            this.openBackupDBToolStripMenuItem.Size = new System.Drawing.Size(163, 22);
-            this.openBackupDBToolStripMenuItem.Text = "Open Backup DB";
+            this.openBackupDBToolStripMenuItem.Size = new System.Drawing.Size(181, 22);
+            this.openBackupDBToolStripMenuItem.Text = "Open Backup Folder";
             this.openBackupDBToolStripMenuItem.Click += new System.EventHandler(this.openBackupDBToolStripMenuItem_Click);
             // 
             // exitToolStripMenuItem
             // 
             this.exitToolStripMenuItem.Name = "exitToolStripMenuItem";
-            this.exitToolStripMenuItem.Size = new System.Drawing.Size(163, 22);
+            this.exitToolStripMenuItem.Size = new System.Drawing.Size(181, 22);
             this.exitToolStripMenuItem.Text = "Exit";
             this.exitToolStripMenuItem.Click += new System.EventHandler(this.exitToolStripMenuItem_Click);
             // 

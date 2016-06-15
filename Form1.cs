@@ -25,12 +25,10 @@ namespace gitstylebackupexplorer
         private void openBackupDBToolStripMenuItem_Click(object sender, EventArgs e)
         {
             //open backup db
-            OpenFileDialog openFile = new OpenFileDialog();
-            openFile.Filter = "Backup DB File (*.db) | *.db;";
-            openFile.Multiselect = false;
-            if (openFile.ShowDialog() == DialogResult.OK)
+            FolderBrowserDialog openFolder = new FolderBrowserDialog();
+            if (openFolder.ShowDialog() == DialogResult.OK)
             {
-                PopulateTree(openFile.FileName);
+                PopulateTree(openFolder.SelectedPath);
             }
         }
 
@@ -38,6 +36,32 @@ namespace gitstylebackupexplorer
         {
             //exit
             Application.Exit();
+        }
+
+        private void DecompressToFile(string source, string dest)
+        {
+            using (System.IO.Compression.GZipStream stream = new System.IO.Compression.GZipStream(new System.IO.FileStream(source, System.IO.FileMode.Open), System.IO.Compression.CompressionMode.Decompress))
+            using (System.IO.FileStream outstream = new System.IO.FileStream(dest, System.IO.FileMode.Create))
+            {
+                stream.CopyTo(outstream);
+
+                outstream.Flush();
+                outstream.Close();
+                stream.Close();
+            }
+        }
+
+        static readonly string[] SizeSuffixes =
+                   { "bytes", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB" };
+        static string SizeSuffix(Int64 value)
+        {
+            if (value < 0) { return "-" + SizeSuffix(-value); }
+            if (value == 0) { return "0.0 bytes"; }
+
+            int mag = (int)Math.Log(value, 1024);
+            decimal adjustedSize = (decimal)value / (1L << (mag * 10));
+
+            return string.Format("{0:n1} {1}", adjustedSize, SizeSuffixes[mag]);
         }
 
         private void infoToolStripMenuItem_Click(object sender, EventArgs e)
@@ -60,25 +84,80 @@ namespace gitstylebackupexplorer
                 if (nodeFileName != "")
                 {
                     //file
-                    string sinfo = "";
-                    sinfo += "Name: " + db.Version[nodeVersion].File[nodeDirPath + "/" + nodeFileName].Name + "\n";
-                    sinfo += "Directory: " + nodeDirPath + "\n";
-                    sinfo += "Version: " + db.Version[nodeVersion].Number.ToString() + "\n";
-                    sinfo += "Date: " + db.Version[nodeVersion].File[nodeDirPath + "/" + nodeFileName].Date.ToShortDateString() + " " + db.Version[nodeVersion].File[nodeDirPath + "/" + nodeFileName].Date.ToLongTimeString() + "\n";
-                    sinfo += "Date Modified: " + db.Version[nodeVersion].File[nodeDirPath + "/" + nodeFileName].DateModified.ToShortDateString() + " " + db.Version[nodeVersion].File[nodeDirPath + "/" + nodeFileName].DateModified.ToLongTimeString() + "\n";
-                    sinfo += "Size: " + db.Version[nodeVersion].File[nodeDirPath + "/" + nodeFileName].Size + " MB\n";
-                    sinfo += "Hash: " + HashToString(db.Version[nodeVersion].File[nodeDirPath + "/" + nodeFileName].Hash) + "\n";
+                    string sfile = "";
+                    string shash = "";
+                    DateTime moddate = new DateTime();
 
-                    MessageBox.Show(sinfo, "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    System.IO.StreamReader verFile = new System.IO.StreamReader(backupVersionFolderPath + "\\" + nodeVersion);
+                    bool bfound = false;
+                    string line = "";
+                    while ((line = verFile.ReadLine()) != null)
+                    {
+                        if (line.StartsWith("FILE:"))
+                        {
+                            if (sfile == nodeDirPath + "\\" + nodeFileName)
+                            {
+                                bfound = true;
+                                break;
+                            }
+                            sfile = line.Substring(("FILE:").Length);
+                        }
+                        else if (line.StartsWith("MODDATE:"))
+                        {
+                            moddate = DateTime.Parse(line.Substring(("MODDATE:").Length));
+                        }
+                        else if (line.StartsWith("HASH:"))
+                        {
+                            shash = line.Substring(("HASH:").Length);
+                        }
+                    }
+                    verFile.Close();
+
+                    if (bfound)
+                    {
+                        long length = new System.IO.FileInfo(backupFilesFolderPath + "\\" + shash.Substring(0, 2) + "\\" + shash).Length;
+
+                        string sinfo = "";
+                        sinfo += "Name: " + sfile + "\n";
+                        sinfo += "Directory: " + nodeDirPath + "\n";
+                        sinfo += "Version: " + nodeVersion + "\n";
+                        sinfo += "Date Modified: " + moddate.ToShortDateString() + " " + moddate.ToLongTimeString() + "\n";
+                        sinfo += "Size: " + SizeSuffix(length) + " \n";
+                        sinfo += "Hash: " + shash + "\n";
+
+                        MessageBox.Show(sinfo, "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
+                    else
+                    {
+                        MessageBox.Show("Could Not Find File", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
                 }
                 else
                 {
                     //dir
+                    string verhash = "";
+                    DateTime verDate = new DateTime();
+
+                    System.IO.StreamReader verFile = new System.IO.StreamReader(backupVersionFolderPath + "\\" + nodeVersion);
+                    string line = "";
+                    while ((line = verFile.ReadLine()) != null)
+                    {
+                        if (line.StartsWith("DATE:"))
+                        {
+                            verDate = DateTime.Parse(line.Substring(("DATE:").Length));
+                        }
+                        else if (line.StartsWith("VERSIONHASH:"))
+                        {
+                            verhash = line.Substring(("VERSIONHASH:").Length);
+                        }
+                    }
+                    verFile.Close();
+
                     string sinfo = "";
                     sinfo += "Directory: " + nodeDirPath + "\n";
-                    sinfo += "Version: " + db.Version[nodeVersion].Number.ToString() + "\n";
-                    sinfo += "Date: " + db.Version[nodeVersion].Date.ToShortDateString() + " " + db.Version[nodeVersion].Date.ToLongTimeString() + "\n";
-                    sinfo += "Hash: " + HashToString(db.Version[nodeVersion].Hash) + "\n";
+                    sinfo += "Version: " + nodeVersion + "\n";
+                    sinfo += "Date: " + verDate.ToShortDateString() + " " + verDate.ToLongTimeString() + "\n";
+                    sinfo += "Hash: " + verhash + "\n";
 
                     MessageBox.Show(sinfo, "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
@@ -102,76 +181,121 @@ namespace gitstylebackupexplorer
                     nodeDirPath = nodeDirPath.Substring(0, nodeDirPath.IndexOf("~"));
                 }
 
-                System.IO.FileInfo fiConfigFileInfo = new System.IO.FileInfo(configFilePath);
+
 
                 if (nodeFileName != "")
                 {
                     //file
-                    string HashFileName = "";
-                    SaveFileDialog saveFile = new SaveFileDialog();
-                    saveFile.FileName = nodeFileName;
-                    saveFile.OverwritePrompt = true;
-                    if (saveFile.ShowDialog() == DialogResult.OK)
-                    {
-                        string StatusMessage = "Done";
-                        bool ErrorStatus = false;
-                        foreach (string key in db.Version[nodeVersion].File.Keys)
-                        {
-                            if (key == nodeDirPath + "/" + nodeFileName)
-                            {
-                                HashFileName = HashToString(db.Version[nodeVersion].File[key].Hash);
-                                string sourceFile = fiConfigFileInfo.Directory.FullName + "\\Files\\" + HashFileName.Substring(0, 2) + "\\" + HashFileName;
-                                string destFile = saveFile.FileName;
+                    string sfile = "";
+                    string shash = "";
 
-                                try
-                                {
-                                    System.IO.File.Copy(sourceFile, destFile, true);
-                                }
-                                catch (Exception ex)
-                                {
-                                    StatusMessage = "File Restore Did Not Complete\n" + ex.ToString();
-                                    ErrorStatus = true;
-                                }
+                    System.IO.StreamReader verFile = new System.IO.StreamReader(backupVersionFolderPath + "\\" + nodeVersion);
+                    string line = "";
+                    bool bfound = false;
+                    while ((line = verFile.ReadLine()) != null)
+                    {
+                        if (line.StartsWith("FILE:"))
+                        {
+                            if (sfile == nodeDirPath + "\\" + nodeFileName)
+                            {
+                                bfound = true;
+                                break;
                             }
+                            sfile = line.Substring("FILE:".Length);
                         }
-                        if (ErrorStatus)
-                            MessageBox.Show(StatusMessage, "Restore", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                        else
-                            MessageBox.Show(StatusMessage, "Restore", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        else if (line.StartsWith("HASH:"))
+                        {
+                            shash = line.Substring(("HASH:").Length);
+                        }
+                    }
+                    verFile.Close();
+
+                    if (bfound)
+                    {
+                        SaveFileDialog saveFile = new SaveFileDialog();
+                        saveFile.FileName = nodeFileName;
+                        saveFile.OverwritePrompt = true;
+                        if (saveFile.ShowDialog() == DialogResult.OK)
+                        {
+                            string StatusMessage = "Done";
+                            bool ErrorStatus = false;
+                            string sourceFile = backupFilesFolderPath + "\\" + shash.Substring(0, 2) + "\\" + shash;
+                            string destFile = saveFile.FileName;
+
+                            try
+                            {
+                                DecompressToFile(sourceFile, destFile);
+                            }
+                            catch (Exception ex)
+                            {
+                                StatusMessage = "File Restore Did Not Complete\n" + ex.ToString();
+                                ErrorStatus = true;
+                            }
+
+                            if (ErrorStatus)
+                                MessageBox.Show(StatusMessage, "Restore", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                            else
+                                MessageBox.Show(StatusMessage, "Restore", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        }
+                    }
+                    else
+                    {
+                        MessageBox.Show("Could Not Find File", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     }
                 }
                 else
                 {
                     //dir
-                    string HashFileName = "";
                     FolderBrowserDialog saveFolder = new FolderBrowserDialog();
                     if (saveFolder.ShowDialog() == DialogResult.OK)
                     {
                         string StatusMessage = "Done";
                         bool ErrorStatus = false;
-                        foreach (string key in db.Version[nodeVersion].File.Keys)
+
+                        string sfile = "";
+                        string shash = "";
+
+                        System.IO.StreamReader verFile = new System.IO.StreamReader(backupVersionFolderPath + "\\" + nodeVersion);
+                        string line = "";
+                        while ((line = verFile.ReadLine()) != null)
                         {
-                            if (key.StartsWith(nodeDirPath))
+                            if (line.StartsWith("FILE:"))
                             {
-                                HashFileName = HashToString(db.Version[nodeVersion].File[key].Hash);
-                                string sourceFile = fiConfigFileInfo.Directory.FullName + "\\Files\\" + HashFileName.Substring(0,2) + "\\" + HashFileName;
-                                string destFile = key.Replace("/", "\\").Replace(nodeDirPath, saveFolder.SelectedPath);
+                                sfile = line.Substring(("FILE:").Length);
+                            }
+                            else if (line.StartsWith("HASH:"))
+                            {
+                                shash = line.Substring(("HASH:").Length);
+                            }
 
-                                try
+                            if (sfile != "" && shash != "")
+                            {
+                                if (sfile.StartsWith(nodeDirPath))
                                 {
-                                    System.IO.FileInfo destFileInfo = new System.IO.FileInfo(destFile);
-                                    if (!destFileInfo.Directory.Exists)
-                                        System.IO.Directory.CreateDirectory(destFileInfo.Directory.FullName);
+                                    string sourceFile = backupFilesFolderPath + "\\" + shash.Substring(0, 2) + "\\" + shash;
+                                    string destFile = sfile.Replace(nodeDirPath, saveFolder.SelectedPath);
 
-                                    System.IO.File.Copy(sourceFile, destFile);
+                                    try
+                                    {
+                                        System.IO.FileInfo destFileInfo = new System.IO.FileInfo(destFile);
+                                        if (!destFileInfo.Directory.Exists)
+                                            System.IO.Directory.CreateDirectory(destFileInfo.Directory.FullName);
+
+                                        DecompressToFile(sourceFile, destFile);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        StatusMessage = "File Restore Did Not Complete\n" + ex.ToString();
+                                        ErrorStatus = true;
+                                    }
                                 }
-                                catch (Exception ex)
-                                {
-                                    StatusMessage = "File Restore Did Not Complete\n" + ex.ToString();
-                                    ErrorStatus = true;
-                                }
+
+                                sfile = "";
+                                shash = "";
                             }
                         }
+                        verFile.Close();
+
                         if (ErrorStatus)
                             MessageBox.Show(StatusMessage, "Restore", MessageBoxButtons.OK, MessageBoxIcon.Error);
                         else
@@ -181,58 +305,53 @@ namespace gitstylebackupexplorer
             }
         }
 
-        private string HashToString(byte[] hash)
-        {
-            string shash = "";
-            foreach(byte b in hash)
-            {
-                shash += b.ToString("000");
-            }
-            return shash;
-        }
 
-        class bdb
-        {
-            public bool Inuse;
-            public Dictionary<string, bdb_version> Version = new Dictionary<string, bdb_version>();
-        }
-
-        class bdb_version
-        {
-            public int Number;
-            public Dictionary<string, bdb_version_file> File = new Dictionary<string, bdb_version_file>();
-            public byte[] Hash;
-            public DateTime Date = new DateTime();
-        }
-
-        class bdb_version_file
-        {
-            public string Name;
-            public byte[] Hash;
-            public DateTime Date;
-            public DateTime DateModified;
-            public string Size;
-        }
-
-        bdb db = new bdb();
-        string configFilePath = "";
-        private void PopulateTree(string cfgFile)
+        
+        string backupFolderPath = "";
+        string backupInUseFile = "";
+        string backupVersionFolderPath = "";
+        string backupFilesFolderPath = "";
+        private void PopulateTree(string backupFolder)
         {
             try
             {
-                configFilePath = cfgFile;
-                LastNodeClick = null;
+                backupFolderPath = backupFolder;
+                backupInUseFile = backupFolderPath + "\\InUse.txt";
+                backupVersionFolderPath = backupFolderPath + "\\Version";
+                backupFilesFolderPath = backupFolderPath + "\\Files";
 
-                db = Newtonsoft.Json.JsonConvert.DeserializeObject<bdb>(System.IO.File.ReadAllText(cfgFile));
+
+                LastNodeClick = null;
 
                 treeView1.Nodes.Clear();
                 //add tree item for each version
-                foreach(string key in db.Version.Keys)
+                foreach(string file in System.IO.Directory.GetFiles(backupVersionFolderPath))
                 {
-                    bdb_version ver = db.Version[key];
+                    DateTime verDateTime = new DateTime();
+                    string verHash = "";
+                    string verNumber = "";
 
-                    TreeNode tn = new TreeNode(ver.Number.ToString() + " : " + ver.Date.ToShortDateString() + " " + ver.Date.ToLongTimeString());
-                    tn.Tag = ver.Number.ToString() + "~";
+                    System.IO.StreamReader verFile = new System.IO.StreamReader(file);
+                    string line = "";
+                    while ((line = verFile.ReadLine()) != null)
+                    {
+                        if (line.StartsWith("VERSION:"))
+                        {
+                            verNumber = line.Substring("VERSION:".Length);
+                        }
+                        else if (line.StartsWith("DATE:"))
+                        {
+                            verDateTime = DateTime.Parse(line.Substring(("DATE:").Length));
+                        }
+                        else if (line.StartsWith("VERSIONHASH:"))
+                        {
+                            verHash = line.Substring(("VERSIONHASH:").Length);
+                        }
+                    }
+                    verFile.Close();
+
+                    TreeNode tn = new TreeNode(verNumber + " - " + verDateTime.ToShortDateString() + " " + verDateTime.ToLongTimeString());
+                    tn.Tag = verNumber + "~";
                     tn.Nodes.Add("");
                     treeView1.Nodes.Add(tn);
                 }
@@ -267,43 +386,60 @@ namespace gitstylebackupexplorer
             }
 
             //fill only the next row of items
-            bdb_version ver = db.Version[nodeVersion];
+            string sfile = "";
+            string shash = "";
+            DateTime moddate = new DateTime();
 
-            List<string> sortedKeys = new List<string>();
-            foreach(string key in ver.File.Keys)
-            {
-                sortedKeys.Add(key);
-            }
-            sortedKeys.Sort();
 
-            foreach(string sfile in sortedKeys)
+            System.IO.StreamReader verFile = new System.IO.StreamReader(backupVersionFolderPath + "\\" + nodeVersion);
+            string line = "";
+            while ((line = verFile.ReadLine()) != null)
             {
-                if (sfile.StartsWith(nodeKey) || sfile.StartsWith(nodeKey.TrimEnd('\\')+"/"))
+                if (line.StartsWith("FILE:"))
                 {
-                    string stmp = sfile;
-                    if (nodeKey != "")
+                    sfile = line.Substring("FILE:".Length);
+                }
+                else if (line.StartsWith("MODDATE:"))
+                {
+                    moddate = DateTime.Parse(line.Substring(("MODDATE:").Length));
+                }
+                else if (line.StartsWith("HASH:"))
+                {
+                    shash = line.Substring(("HASH:").Length);
+                }
+
+                if (sfile != "" && shash != "")
+                {
+                    if (sfile.StartsWith(nodeKey))
                     {
-                        stmp = sfile.Replace(nodeKey, "");
-                        stmp = stmp.Replace(nodeKey.TrimEnd('\\') + "/", "");
+                        string stmp = sfile;
+                        if (nodeKey != "")
+                            stmp = sfile.Replace(nodeKey, "");
+
+                        string[] split = stmp.Split(new char[] { '\\' });
+                        if (node.Nodes.ContainsKey(split[0]) == false)
+                        {
+                            if (split.Length == 1)
+                            {
+                                //file
+                                node.Nodes.Add(new TreeNode() { Name = split[0], Text = split[0], Tag = nodeVersion + "~" + nodeKey.TrimEnd('\\') + "~" + split[0] });
+                            }
+                            else
+                            {
+                                //dir
+                                int inode = node.Nodes.Add(new TreeNode() { Name = split[0], Text = split[0], Tag = nodeVersion + "~" + nodeKey + split[0] });
+                                node.Nodes[inode].Nodes.Add("");
+                            }
+                        }
                     }
 
-                    string[] split = stmp.Split(new char[] { '\\', '/' });
-                    if (node.Nodes.ContainsKey(split[0]) == false)
-                    {
-                        if (split.Length == 1)
-                        {
-                            //file
-                            node.Nodes.Add(new TreeNode() { Name = split[0], Text = split[0], Tag = nodeVersion + "~" + nodeKey.TrimEnd('\\') + "~" + split[0] });
-                        }
-                        else
-                        {
-                            //dir
-                            int inode = node.Nodes.Add(new TreeNode() { Name = split[0], Text = split[0], Tag = nodeVersion + "~" + nodeKey + split[0] });
-                            node.Nodes[inode].Nodes.Add("");
-                        }
-                    }
+
+                    sfile = "";
+                    moddate = new DateTime();
+                    shash = "";
                 }
             }
+            verFile.Close();
         }
 
         TreeNode LastNodeClick;

@@ -87,6 +87,7 @@ namespace gitstylebackupexplorer
                     string sfile = "";
                     string shash = "";
                     DateTime moddate = new DateTime();
+                    long ssize = 0;
 
                     System.IO.StreamReader verFile = new System.IO.StreamReader(backupVersionFolderPath + "\\" + nodeVersion);
                     bool bfound = false;
@@ -106,6 +107,10 @@ namespace gitstylebackupexplorer
                         {
                             moddate = DateTime.Parse(line.Substring(("MODDATE:").Length));
                         }
+                        else if (line.StartsWith("SIZE:"))
+                        {
+                            ssize = long.Parse(line.Substring(("SIZE:").Length));
+                        }
                         else if (line.StartsWith("HASH:"))
                         {
                             shash = line.Substring(("HASH:").Length);
@@ -115,14 +120,12 @@ namespace gitstylebackupexplorer
 
                     if (bfound)
                     {
-                        long length = new System.IO.FileInfo(backupFilesFolderPath + "\\" + shash.Substring(0, 2) + "\\" + shash).Length;
-
                         string sinfo = "";
                         sinfo += "Name: " + sfile + "\n";
                         sinfo += "Directory: " + nodeDirPath + "\n";
                         sinfo += "Version: " + nodeVersion + "\n";
                         sinfo += "Date Modified: " + moddate.ToShortDateString() + " " + moddate.ToLongTimeString() + "\n";
-                        sinfo += "Size: " + SizeSuffix(length) + " \n";
+                        sinfo += "Size: " + SizeSuffix(ssize) + " \n";
                         sinfo += "Hash: " + shash + "\n";
 
                         MessageBox.Show(sinfo, "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -327,33 +330,36 @@ namespace gitstylebackupexplorer
                 //add tree item for each version
                 foreach(string file in System.IO.Directory.GetFiles(backupVersionFolderPath))
                 {
-                    DateTime verDateTime = new DateTime();
-                    string verHash = "";
-                    string verNumber = "";
-
-                    System.IO.StreamReader verFile = new System.IO.StreamReader(file);
-                    string line = "";
-                    while ((line = verFile.ReadLine()) != null)
+                    if (file.EndsWith(".tmp") == false)
                     {
-                        if (line.StartsWith("VERSION:"))
-                        {
-                            verNumber = line.Substring("VERSION:".Length);
-                        }
-                        else if (line.StartsWith("DATE:"))
-                        {
-                            verDateTime = DateTime.Parse(line.Substring(("DATE:").Length));
-                        }
-                        else if (line.StartsWith("VERSIONHASH:"))
-                        {
-                            verHash = line.Substring(("VERSIONHASH:").Length);
-                        }
-                    }
-                    verFile.Close();
+                        DateTime verDateTime = new DateTime();
+                        string verHash = "";
+                        string verNumber = "";
 
-                    TreeNode tn = new TreeNode(verNumber + " - " + verDateTime.ToShortDateString() + " " + verDateTime.ToLongTimeString());
-                    tn.Tag = verNumber + "~";
-                    tn.Nodes.Add("");
-                    treeView1.Nodes.Add(tn);
+                        System.IO.StreamReader verFile = new System.IO.StreamReader(file);
+                        string line = "";
+                        while ((line = verFile.ReadLine()) != null)
+                        {
+                            if (line.StartsWith("VERSION:"))
+                            {
+                                verNumber = line.Substring("VERSION:".Length);
+                            }
+                            else if (line.StartsWith("DATE:"))
+                            {
+                                verDateTime = DateTime.Parse(line.Substring(("DATE:").Length));
+                            }
+                            else if (line.StartsWith("VERSIONHASH:"))
+                            {
+                                verHash = line.Substring(("VERSIONHASH:").Length);
+                            }
+                        }
+                        verFile.Close();
+
+                        TreeNode tn = new TreeNode(verNumber + " - " + verDateTime.ToShortDateString() + " " + verDateTime.ToLongTimeString());
+                        tn.Tag = verNumber + "~";
+                        tn.Nodes.Add("");
+                        treeView1.Nodes.Add(tn);
+                    }
                 }
             }
             catch (Exception ex)
@@ -387,8 +393,6 @@ namespace gitstylebackupexplorer
 
             //fill only the next row of items
             string sfile = "";
-            string shash = "";
-            DateTime moddate = new DateTime();
 
 
             System.IO.StreamReader verFile = new System.IO.StreamReader(backupVersionFolderPath + "\\" + nodeVersion);
@@ -399,16 +403,8 @@ namespace gitstylebackupexplorer
                 {
                     sfile = line.Substring("FILE:".Length);
                 }
-                else if (line.StartsWith("MODDATE:"))
-                {
-                    moddate = DateTime.Parse(line.Substring(("MODDATE:").Length));
-                }
-                else if (line.StartsWith("HASH:"))
-                {
-                    shash = line.Substring(("HASH:").Length);
-                }
 
-                if (sfile != "" && shash != "")
+                if (sfile != "")
                 {
                     if (sfile.StartsWith(nodeKey))
                     {
@@ -435,8 +431,6 @@ namespace gitstylebackupexplorer
 
 
                     sfile = "";
-                    moddate = new DateTime();
-                    shash = "";
                 }
             }
             verFile.Close();

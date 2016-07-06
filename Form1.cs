@@ -325,7 +325,11 @@ namespace gitstylebackupexplorer
 
                 treeView1.Nodes.Clear();
                 //add tree item for each version
-                foreach(string file in System.IO.Directory.GetFiles(backupVersionFolderPath))
+                List<string> files = System.IO.Directory.GetFiles(backupVersionFolderPath).ToList();
+                files.Sort(new FileNameComparer());
+
+
+                foreach (string file in files)
                 {
                     if (file.EndsWith(".tmp") == false)
                     {
@@ -343,6 +347,7 @@ namespace gitstylebackupexplorer
                             else if (line.StartsWith("DATE:"))
                             {
                                 verDateTime = DateTime.Parse(line.Substring(("DATE:").Length));
+								break;
                             }
                         }
                         verFile.Close();
@@ -438,6 +443,45 @@ namespace gitstylebackupexplorer
         {
             if (!e.Node.IsExpanded)
                 e.Node.Expand();
+        }
+    }
+
+    public class FileNameComparer : IComparer<string>
+    {
+        public int Compare(string x, string y)
+        {
+            if (x == null)
+            {
+                if (y == null)
+                {
+                    return 0;
+                }
+                else
+                {
+                    return -1;
+                }
+            }
+            else
+            {
+                if (y == null)
+                {
+                    return 1;
+                }
+                else
+                {
+                    System.IO.FileInfo fiX = new System.IO.FileInfo(x);
+                    System.IO.FileInfo fiY = new System.IO.FileInfo(y);
+
+                    int iX = Int32.Parse(fiX.Name);
+                    int iY = Int32.Parse(fiY.Name);
+
+                    if (iX > iY)
+                        return 1;
+                    else
+                        return -1;
+
+                }
+            }
         }
     }
 }

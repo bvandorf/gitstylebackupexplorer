@@ -53,7 +53,7 @@ namespace gitstylebackupexplorer
 
         static readonly string[] SizeSuffixes =
                    { "bytes", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB" };
-        static string SizeSuffix(Int64 value)
+        static string SizeSuffix(long value)
         {
             if (value < 0) { return "-" + SizeSuffix(-value); }
             if (value == 0) { return "0.0 bytes"; }
@@ -87,7 +87,8 @@ namespace gitstylebackupexplorer
                     string sfile = "";
                     string shash = "";
                     DateTime moddate = new DateTime();
-                    long ssize = 0;
+                    long lsize = 0;
+                    string ssize = "";
 
                     System.IO.StreamReader verFile = new System.IO.StreamReader(backupVersionFolderPath + "\\" + nodeVersion);
                     bool bfound = false;
@@ -96,12 +97,12 @@ namespace gitstylebackupexplorer
                     {
                         if (line.StartsWith("FILE:"))
                         {
-                            if (sfile == nodeDirPath + "\\" + nodeFileName)
-                            {
-                                bfound = true;
+                            if (bfound)
                                 break;
-                            }
+
                             sfile = line.Substring(("FILE:").Length);
+                            if (sfile == nodeDirPath + "\\" + nodeFileName)
+                                bfound = true;
                         }
                         else if (line.StartsWith("MODDATE:"))
                         {
@@ -109,7 +110,9 @@ namespace gitstylebackupexplorer
                         }
                         else if (line.StartsWith("SIZE:"))
                         {
-                            ssize = long.Parse(line.Substring(("SIZE:").Length));
+                            ssize = line.Substring(("SIZE:").Length);
+                            ssize = ssize.Replace(".", "");
+                            lsize = long.Parse(ssize);
                         }
                         else if (line.StartsWith("HASH:"))
                         {
@@ -125,7 +128,7 @@ namespace gitstylebackupexplorer
                         sinfo += "Directory: " + nodeDirPath + "\n";
                         sinfo += "Version: " + nodeVersion + "\n";
                         sinfo += "Date Modified: " + moddate.ToShortDateString() + " " + moddate.ToLongTimeString() + "\n";
-                        sinfo += "Size: " + SizeSuffix(ssize) + " \n";
+                        sinfo += "Size: " + SizeSuffix(lsize) + " \n";
                         sinfo += "Hash: " + shash + "\n";
 
                         MessageBox.Show(sinfo, "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -138,7 +141,6 @@ namespace gitstylebackupexplorer
                 else
                 {
                     //dir
-                    string verhash = "";
                     DateTime verDate = new DateTime();
 
                     System.IO.StreamReader verFile = new System.IO.StreamReader(backupVersionFolderPath + "\\" + nodeVersion);
@@ -149,10 +151,6 @@ namespace gitstylebackupexplorer
                         {
                             verDate = DateTime.Parse(line.Substring(("DATE:").Length));
                         }
-                        else if (line.StartsWith("VERSIONHASH:"))
-                        {
-                            verhash = line.Substring(("VERSIONHASH:").Length);
-                        }
                     }
                     verFile.Close();
 
@@ -160,7 +158,6 @@ namespace gitstylebackupexplorer
                     sinfo += "Directory: " + nodeDirPath + "\n";
                     sinfo += "Version: " + nodeVersion + "\n";
                     sinfo += "Date: " + verDate.ToShortDateString() + " " + verDate.ToLongTimeString() + "\n";
-                    sinfo += "Hash: " + verhash + "\n";
 
                     MessageBox.Show(sinfo, "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
@@ -199,12 +196,12 @@ namespace gitstylebackupexplorer
                     {
                         if (line.StartsWith("FILE:"))
                         {
-                            if (sfile == nodeDirPath + "\\" + nodeFileName)
-                            {
-                                bfound = true;
+                            if (bfound)
                                 break;
-                            }
-                            sfile = line.Substring("FILE:".Length);
+
+                            sfile = line.Substring(("FILE:").Length);
+                            if (sfile == nodeDirPath + "\\" + nodeFileName)
+                                bfound = true;
                         }
                         else if (line.StartsWith("HASH:"))
                         {
@@ -333,7 +330,6 @@ namespace gitstylebackupexplorer
                     if (file.EndsWith(".tmp") == false)
                     {
                         DateTime verDateTime = new DateTime();
-                        string verHash = "";
                         string verNumber = "";
 
                         System.IO.StreamReader verFile = new System.IO.StreamReader(file);
@@ -347,10 +343,6 @@ namespace gitstylebackupexplorer
                             else if (line.StartsWith("DATE:"))
                             {
                                 verDateTime = DateTime.Parse(line.Substring(("DATE:").Length));
-                            }
-                            else if (line.StartsWith("VERSIONHASH:"))
-                            {
-                                verHash = line.Substring(("VERSIONHASH:").Length);
                             }
                         }
                         verFile.Close();

@@ -1,4 +1,10 @@
 # gitstylebackupexplorer
 Git Style File Backup Explorer 
 
-This is a work in progress and is not working yet
+This is the GUI for the gitstylebackup program to view and restore files and directorys from spicific version of the backup.
+
+# gitstylebackup
+
+This is the command line backup program
+https://github.com/bvandorf/gitstylebackup
+

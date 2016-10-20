@@ -5,6 +5,6 @@ This is the GUI for the gitstylebackup program to view and restore files and dir
 
 # gitstylebackup
 
-This is the command line backup program
+This is the command line backup program <br>
 https://github.com/bvandorf/gitstylebackup
 

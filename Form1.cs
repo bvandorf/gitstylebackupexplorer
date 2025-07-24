@@ -1,17 +1,30 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
 using System.Drawing;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using gitstylebackupexplorer.Models;
+using gitstylebackupexplorer.Services;
+using gitstylebackupexplorer.Utilities;
 
 namespace gitstylebackupexplorer
 {
     public partial class Form1 : Form
     {
+        private string backupFolderPath = "";
+        private string backupInUseFile = "";
+        private string backupVersionFolderPath = "";
+        private string backupFilesFolderPath = "";
+        private TreeNode LastNodeClick;
+        
+        private ResumableRestoreService _restoreService;
+        private BackupVersionReader _versionReader;
+
         public Form1()
         {
             InitializeComponent();
@@ -51,17 +64,9 @@ namespace gitstylebackupexplorer
             }
         }
 
-        static readonly string[] SizeSuffixes =
-                   { "bytes", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB" };
         static string SizeSuffix(long value)
         {
-            if (value < 0) { return "-" + SizeSuffix(-value); }
-            if (value == 0) { return "0.0 bytes"; }
-
-            int mag = (int)Math.Log(value, 1024);
-            decimal adjustedSize = (decimal)value / (1L << (mag * 10));
-
-            return string.Format("{0:n1} {1}", adjustedSize, SizeSuffixes[mag]);
+            return SizeFormatter.FormatSize(value);
         }
 
         private void infoToolStripMenuItem_Click(object sender, EventArgs e)
@@ -166,11 +171,9 @@ namespace gitstylebackupexplorer
 
         private void restoreToolStripMenuItem_Click(object sender, EventArgs e)
         {
-            //restore
             if (LastNodeClick != null)
             {
                 TreeNode node = LastNodeClick;
-
                 string nodeTag = node.Tag.ToString();
                 string nodeVersion = nodeTag.Substring(0, nodeTag.IndexOf("~"));
                 string nodeDirPath = nodeTag.Substring(nodeTag.IndexOf("~") + 1);
@@ -181,136 +184,154 @@ namespace gitstylebackupexplorer
                     nodeDirPath = nodeDirPath.Substring(0, nodeDirPath.IndexOf("~"));
                 }
 
+                LaunchRestoreWindow(nodeVersion, nodeDirPath, nodeFileName, false);
+            }
+            else
+            {
+                MessageBox.Show("Please select a file or directory to restore.", "No Selection", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+        }
 
-
-                if (nodeFileName != "")
+        private void LaunchRestoreWindow(string nodeVersion, string nodeDirPath, string nodeFileName, bool isResume)
+        {
+            string destinationPath = "";
+            
+            // Get destination path from user
+            if (!string.IsNullOrEmpty(nodeFileName))
+            {
+                // Single file restore
+                SaveFileDialog saveFile = new SaveFileDialog();
+                saveFile.FileName = nodeFileName;
+                saveFile.OverwritePrompt = true;
+                
+                if (saveFile.ShowDialog() != DialogResult.OK)
+                    return;
+                    
+                destinationPath = saveFile.FileName;
+            }
+            else
+            {
+                // Directory restore
+                FolderBrowserDialog saveFolder = new FolderBrowserDialog();
+                if (saveFolder.ShowDialog() != DialogResult.OK)
+                    return;
+                    
+                destinationPath = saveFolder.SelectedPath;
+            }
+            
+            // Create temp restore folder in the same location as destination for better performance and space management
+            string restoreId = Guid.NewGuid().ToString();
+            string destinationDirectory = string.IsNullOrEmpty(nodeFileName) ? destinationPath : Path.GetDirectoryName(destinationPath);
+            string tempRestoreFolder = Path.Combine(destinationDirectory, ".BackupRestore_" + restoreId);
+            
+            if (!Directory.Exists(tempRestoreFolder))
+                Directory.CreateDirectory(tempRestoreFolder);
+            
+            // Check for existing incomplete restore for directory operations
+            if (string.IsNullOrEmpty(nodeFileName) && !isResume)
+            {
+                var statusTracker = new RestoreStatusTracker(tempRestoreFolder);
+                bool canResume = statusTracker.CanResume();
+                
+                if (canResume)
                 {
-                    //file
-                    string sfile = "";
-                    string shash = "";
-
-                    System.IO.StreamReader verFile = new System.IO.StreamReader(backupVersionFolderPath + "\\" + nodeVersion);
-                    string line = "";
-                    bool bfound = false;
-                    while ((line = verFile.ReadLine()) != null)
+                    var result = MessageBox.Show("Found incomplete restore operation. Do you want to resume it?", 
+                        "Resume Restore", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                    
+                    if (result == DialogResult.Yes)
                     {
-                        if (line.StartsWith("FILE:"))
-                        {
-                            if (bfound)
-                                break;
-
-                            sfile = line.Substring(("FILE:").Length);
-                            if (sfile == nodeDirPath + "\\" + nodeFileName)
-                                bfound = true;
-                        }
-                        else if (line.StartsWith("HASH:"))
-                        {
-                            shash = line.Substring(("HASH:").Length);
-                        }
-                    }
-                    verFile.Close();
-
-                    if (bfound)
-                    {
-                        SaveFileDialog saveFile = new SaveFileDialog();
-                        saveFile.FileName = nodeFileName;
-                        saveFile.OverwritePrompt = true;
-                        if (saveFile.ShowDialog() == DialogResult.OK)
-                        {
-                            string StatusMessage = "Done";
-                            bool ErrorStatus = false;
-                            string sourceFile = backupFilesFolderPath + "\\" + shash.Substring(0, 2) + "\\" + shash;
-                            string destFile = saveFile.FileName;
-
-                            try
-                            {
-                                DecompressToFile(sourceFile, destFile);
-                            }
-                            catch (Exception ex)
-                            {
-                                StatusMessage = "File Restore Did Not Complete\n" + ex.ToString();
-                                ErrorStatus = true;
-                            }
-
-                            if (ErrorStatus)
-                                MessageBox.Show(StatusMessage, "Restore", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                            else
-                                MessageBox.Show(StatusMessage, "Restore", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                        }
+                        isResume = true;
                     }
                     else
                     {
-                        MessageBox.Show("Could Not Find File", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        // Clean up and start fresh
+                        if (Directory.Exists(tempRestoreFolder))
+                            Directory.Delete(tempRestoreFolder, true);
+                        Directory.CreateDirectory(tempRestoreFolder);
                     }
                 }
-                else
+            }
+            
+            // Create a new independent restore service for this window
+            var independentRestoreService = new ResumableRestoreService(backupFilesFolderPath, backupVersionFolderPath);
+            
+            // Launch the restore window with its own service instance
+            var restoreWindow = new RestoreWindow(independentRestoreService, nodeVersion, nodeDirPath, nodeFileName, 
+                destinationPath, tempRestoreFolder, isResume);
+            restoreWindow.Show();
+        }
+
+        private void RestoreSingleFile(string nodeVersion, string nodeDirPath, string nodeFileName)
+        {
+            SaveFileDialog saveFile = new SaveFileDialog();
+            saveFile.FileName = nodeFileName;
+            saveFile.OverwritePrompt = true;
+            
+            if (saveFile.ShowDialog() == DialogResult.OK)
+            {
+                var result = _restoreService.RestoreSingleFile(nodeVersion, nodeDirPath, nodeFileName, saveFile.FileName);
+                
+                MessageBoxIcon icon = result.Success ? MessageBoxIcon.Information : MessageBoxIcon.Error;
+                MessageBox.Show(result.Message, "Restore", MessageBoxButtons.OK, icon);
+            }
+        }
+
+        private void RestoreDirectory(string nodeVersion, string nodeDirPath)
+        {
+            FolderBrowserDialog saveFolder = new FolderBrowserDialog();
+            if (saveFolder.ShowDialog() == DialogResult.OK)
+            {
+                string restoreId = Guid.NewGuid().ToString();
+                string tempRestoreFolder = Path.Combine(Path.GetTempPath(), "BackupRestore_" + restoreId);
+                
+                if (!Directory.Exists(tempRestoreFolder))
+                    Directory.CreateDirectory(tempRestoreFolder);
+
+                // Check if this is a resume operation
+                var statusTracker = new RestoreStatusTracker(tempRestoreFolder);
+                bool isResume = statusTracker.CanResume();
+                
+                if (isResume)
                 {
-                    //dir
-                    FolderBrowserDialog saveFolder = new FolderBrowserDialog();
-                    if (saveFolder.ShowDialog() == DialogResult.OK)
+                    var result = MessageBox.Show("Found incomplete restore operation. Do you want to resume it?", 
+                        "Resume Restore", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                    
+                    if (result == DialogResult.No)
                     {
-                        string StatusMessage = "Done";
-                        bool ErrorStatus = false;
-
-                        string sfile = "";
-                        string shash = "";
-
-                        System.IO.StreamReader verFile = new System.IO.StreamReader(backupVersionFolderPath + "\\" + nodeVersion);
-                        string line = "";
-                        while ((line = verFile.ReadLine()) != null)
-                        {
-                            if (line.StartsWith("FILE:"))
-                            {
-                                sfile = line.Substring(("FILE:").Length);
-                            }
-                            else if (line.StartsWith("HASH:"))
-                            {
-                                shash = line.Substring(("HASH:").Length);
-                            }
-
-                            if (sfile != "" && shash != "")
-                            {
-                                if (sfile.StartsWith(nodeDirPath))
-                                {
-                                    string sourceFile = backupFilesFolderPath + "\\" + shash.Substring(0, 2) + "\\" + shash;
-                                    string destFile = sfile.Replace(nodeDirPath, saveFolder.SelectedPath);
-
-                                    try
-                                    {
-                                        System.IO.FileInfo destFileInfo = new System.IO.FileInfo(destFile);
-                                        if (!destFileInfo.Directory.Exists)
-                                            System.IO.Directory.CreateDirectory(destFileInfo.Directory.FullName);
-
-                                        DecompressToFile(sourceFile, destFile);
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        StatusMessage = "File Restore Did Not Complete\n" + ex.ToString();
-                                        ErrorStatus = true;
-                                    }
-                                }
-
-                                sfile = "";
-                                shash = "";
-                            }
-                        }
-                        verFile.Close();
-
-                        if (ErrorStatus)
-                            MessageBox.Show(StatusMessage, "Restore", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                        else
-                            MessageBox.Show(StatusMessage, "Restore", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        // Clean up and start fresh
+                        if (Directory.Exists(tempRestoreFolder))
+                            Directory.Delete(tempRestoreFolder, true);
+                        Directory.CreateDirectory(tempRestoreFolder);
+                        isResume = false;
                     }
+                }
+
+                // Subscribe to progress updates
+                _restoreService.ProgressChanged += OnRestoreProgressChanged;
+                
+                try
+                {
+                    var restoreResult = _restoreService.StartResumableRestore(nodeVersion, nodeDirPath, saveFolder.SelectedPath, tempRestoreFolder, isResume);
+                    
+                    MessageBoxIcon icon = restoreResult.Success ? MessageBoxIcon.Information : MessageBoxIcon.Error;
+                    MessageBox.Show(restoreResult.Message, "Restore", MessageBoxButtons.OK, icon);
+                }
+                finally
+                {
+                    _restoreService.ProgressChanged -= OnRestoreProgressChanged;
+                    this.Text = "Git Style Backup Explorer";
                 }
             }
         }
 
+        private void OnRestoreProgressChanged(object sender, RestoreProgressEventArgs e)
+        {
+            // Update the window title with progress information
+            this.Text = e.Progress.StatusMessage;
+            Application.DoEvents();
+        }
 
-        
-        string backupFolderPath = "";
-        string backupInUseFile = "";
-        string backupVersionFolderPath = "";
-        string backupFilesFolderPath = "";
+
         private void PopulateTree(string backupFolder)
         {
             try
@@ -319,6 +340,10 @@ namespace gitstylebackupexplorer
                 backupInUseFile = backupFolderPath + "\\InUse.txt";
                 backupVersionFolderPath = backupFolderPath + "\\Version";
                 backupFilesFolderPath = backupFolderPath + "\\Files";
+
+                // Initialize services
+                _versionReader = new BackupVersionReader(backupVersionFolderPath);
+                _restoreService = new ResumableRestoreService(backupFilesFolderPath, backupVersionFolderPath);
 
 
                 LastNodeClick = null;
@@ -361,7 +386,7 @@ namespace gitstylebackupexplorer
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Error Opening Backup File", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"Error Opening Backup File: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -425,15 +450,12 @@ namespace gitstylebackupexplorer
                             }
                         }
                     }
-
-
                     sfile = "";
                 }
             }
             verFile.Close();
         }
 
-        TreeNode LastNodeClick;
         private void treeView1_NodeMouseClick(object sender, TreeNodeMouseClickEventArgs e)
         {
             LastNodeClick = e.Node;
@@ -443,45 +465,6 @@ namespace gitstylebackupexplorer
         {
             if (!e.Node.IsExpanded)
                 e.Node.Expand();
-        }
-    }
-
-    public class FileNameComparer : IComparer<string>
-    {
-        public int Compare(string x, string y)
-        {
-            if (x == null)
-            {
-                if (y == null)
-                {
-                    return 0;
-                }
-                else
-                {
-                    return -1;
-                }
-            }
-            else
-            {
-                if (y == null)
-                {
-                    return 1;
-                }
-                else
-                {
-                    System.IO.FileInfo fiX = new System.IO.FileInfo(x);
-                    System.IO.FileInfo fiY = new System.IO.FileInfo(y);
-
-                    int iX = Int32.Parse(fiX.Name);
-                    int iY = Int32.Parse(fiY.Name);
-
-                    if (iX > iY)
-                        return 1;
-                    else
-                        return -1;
-
-                }
-            }
         }
     }
 }

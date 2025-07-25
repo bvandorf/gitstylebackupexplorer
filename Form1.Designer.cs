@@ -1,4 +1,4 @@
-﻿namespace gitstylebackupexplorer
+namespace gitstylebackupexplorer
 {
     partial class Form1
     {
@@ -36,6 +36,7 @@
             this.menuStrip1 = new System.Windows.Forms.MenuStrip();
             this.fileToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.openBackupDBToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.resumeFromFolderToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.exitToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.contextMenuStrip1.SuspendLayout();
             this.menuStrip1.SuspendLayout();
@@ -89,6 +90,7 @@
             // 
             this.fileToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this.openBackupDBToolStripMenuItem,
+            this.resumeFromFolderToolStripMenuItem,
             this.exitToolStripMenuItem});
             this.fileToolStripMenuItem.Name = "fileToolStripMenuItem";
             this.fileToolStripMenuItem.Size = new System.Drawing.Size(37, 20);
@@ -100,6 +102,13 @@
             this.openBackupDBToolStripMenuItem.Size = new System.Drawing.Size(181, 22);
             this.openBackupDBToolStripMenuItem.Text = "Open Backup Folder";
             this.openBackupDBToolStripMenuItem.Click += new System.EventHandler(this.openBackupDBToolStripMenuItem_Click);
+            // 
+            // resumeFromFolderToolStripMenuItem
+            // 
+            this.resumeFromFolderToolStripMenuItem.Name = "resumeFromFolderToolStripMenuItem";
+            this.resumeFromFolderToolStripMenuItem.Size = new System.Drawing.Size(181, 22);
+            this.resumeFromFolderToolStripMenuItem.Text = "Resume from Folder";
+            this.resumeFromFolderToolStripMenuItem.Click += new System.EventHandler(this.resumeFromFolderToolStripMenuItem_Click);
             // 
             // exitToolStripMenuItem
             // 
@@ -133,6 +142,7 @@
         private System.Windows.Forms.MenuStrip menuStrip1;
         private System.Windows.Forms.ToolStripMenuItem fileToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem openBackupDBToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem resumeFromFolderToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem exitToolStripMenuItem;
         private System.Windows.Forms.ContextMenuStrip contextMenuStrip1;
         private System.Windows.Forms.ToolStripMenuItem infoToolStripMenuItem;

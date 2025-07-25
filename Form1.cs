@@ -28,6 +28,9 @@ namespace gitstylebackupexplorer
         public Form1()
         {
             InitializeComponent();
+            
+            // Initially disable Resume from Folder until backup is loaded
+            resumeFromFolderToolStripMenuItem.Enabled = false;
         }
 
         private void Form1_Load(object sender, EventArgs e)
@@ -42,6 +45,114 @@ namespace gitstylebackupexplorer
             if (openFolder.ShowDialog() == DialogResult.OK)
             {
                 PopulateTree(openFolder.SelectedPath);
+            }
+        }
+
+        private void resumeFromFolderToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            // Allow user to pick a folder containing .BackupRestore_ folders
+            FolderBrowserDialog folderDialog = new FolderBrowserDialog();
+            folderDialog.Description = "Select the folder containing incomplete restore operations (.BackupRestore_ folders)";
+            
+            if (folderDialog.ShowDialog() == DialogResult.OK)
+            {
+                try
+                {
+                    // Look for .BackupRestore_ folders
+                    var restoreFolders = Directory.GetDirectories(folderDialog.SelectedPath, ".BackupRestore_*")
+                        .Where(dir => 
+                        {
+                            var tracker = new RestoreStatusTracker(dir);
+                            return tracker.CanResume();
+                        })
+                        .ToArray();
+                        
+                    if (restoreFolders.Length == 0)
+                    {
+                        MessageBox.Show("No resumable restore operations found in the selected folder.", 
+                            "No Restore Operations", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        return;
+                    }
+                    
+                    string selectedRestoreFolder;
+                    
+                    if (restoreFolders.Length == 1)
+                    {
+                        selectedRestoreFolder = restoreFolders[0];
+                    }
+                    else
+                    {
+                        // Multiple restore folders found, let user choose
+                        var folderNames = restoreFolders.Select(Path.GetFileName).ToArray();
+                        
+                        using (var selectionForm = new Form())
+                        {
+                            selectionForm.Text = "Select Restore Operation";
+                            selectionForm.Size = new Size(400, 200);
+                            selectionForm.StartPosition = FormStartPosition.CenterParent;
+                            
+                            var listBox = new ListBox();
+                            listBox.Items.AddRange(folderNames);
+                            listBox.Dock = DockStyle.Fill;
+                            listBox.SelectedIndex = 0;
+                            
+                            var okButton = new Button();
+                            okButton.Text = "OK";
+                            okButton.DialogResult = DialogResult.OK;
+                            okButton.Dock = DockStyle.Bottom;
+                            
+                            selectionForm.Controls.Add(listBox);
+                            selectionForm.Controls.Add(okButton);
+                            
+                            if (selectionForm.ShowDialog() == DialogResult.OK && listBox.SelectedIndex >= 0)
+                            {
+                                selectedRestoreFolder = restoreFolders[listBox.SelectedIndex];
+                            }
+                            else
+                            {
+                                return; // User cancelled
+                            }
+                        }
+                    }
+                    
+                    // Get restore status information
+                    var statusTracker = new RestoreStatusTracker(selectedRestoreFolder);
+                    var status = statusTracker.GetCurrentStatus();
+                    
+                    if (status == null)
+                    {
+                        MessageBox.Show("Could not read restore status information.", 
+                            "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                    }
+                    
+                    // Confirm with user
+                    var result = MessageBox.Show(
+                        $"Resume restore operation?\n\n" +
+                        $"Source: {status.NodeDirPath}\n" +
+                        $"Destination: {status.DestinationPath}\n" +
+                        $"Status: {status.Status}\n" +
+                        $"Started: {status.Timestamp:yyyy-MM-dd HH:mm:ss}",
+                        "Resume Restore Operation", 
+                        MessageBoxButtons.YesNo, 
+                        MessageBoxIcon.Question);
+                        
+                    if (result == DialogResult.Yes)
+                    {
+                        // Create a new independent restore service for this window
+                        var independentRestoreService = new ResumableRestoreService(backupFilesFolderPath, backupVersionFolderPath);
+                        
+                        // Launch the restore window in resume mode
+                        var restoreWindow = new RestoreWindow(independentRestoreService, status.NodeVersion, 
+                            status.NodeDirPath, null, status.DestinationPath, selectedRestoreFolder, true);
+                        restoreWindow.Show();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Error resuming restore operation: {ex.Message}", 
+                        "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
             }
         }
 
@@ -220,22 +331,30 @@ namespace gitstylebackupexplorer
             }
             
             // Create temp restore folder in the same location as destination for better performance and space management
-            string restoreId = Guid.NewGuid().ToString();
             string destinationDirectory = string.IsNullOrEmpty(nodeFileName) ? destinationPath : Path.GetDirectoryName(destinationPath);
-            string tempRestoreFolder = Path.Combine(destinationDirectory, ".BackupRestore_" + restoreId);
+            string tempRestoreFolder = null;
             
-            if (!Directory.Exists(tempRestoreFolder))
-                Directory.CreateDirectory(tempRestoreFolder);
-            
-            // Check for existing incomplete restore for directory operations
+            // Check for existing incomplete restore for directory operations first
             if (string.IsNullOrEmpty(nodeFileName) && !isResume)
             {
-                var statusTracker = new RestoreStatusTracker(tempRestoreFolder);
-                bool canResume = statusTracker.CanResume();
-                
-                if (canResume)
+                // Look for existing .BackupRestore_ folders in the destination directory
+                var existingRestoreFolders = Directory.GetDirectories(destinationDirectory, ".BackupRestore_*")
+                    .Where(dir => 
+                    {
+                        var statusTracker = new RestoreStatusTracker(dir);
+                        return statusTracker.CanResume();
+                    })
+                    .ToArray();
+                    
+                if (existingRestoreFolders.Length > 0)
                 {
-                    var result = MessageBox.Show("Found incomplete restore operation. Do you want to resume it?", 
+                    // Use the most recent existing restore folder
+                    tempRestoreFolder = existingRestoreFolders
+                        .OrderByDescending(dir => Directory.GetCreationTime(dir))
+                        .First();
+                        
+                    var result = MessageBox.Show(
+                        $"Found incomplete restore operation in:\n{Path.GetFileName(tempRestoreFolder)}\n\nDo you want to resume it?", 
                         "Resume Restore", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
                     
                     if (result == DialogResult.Yes)
@@ -244,12 +363,31 @@ namespace gitstylebackupexplorer
                     }
                     else
                     {
-                        // Clean up and start fresh
-                        if (Directory.Exists(tempRestoreFolder))
-                            Directory.Delete(tempRestoreFolder, true);
-                        Directory.CreateDirectory(tempRestoreFolder);
+                        // Clean up existing and create fresh
+                        foreach (var folder in existingRestoreFolders)
+                        {
+                            try
+                            {
+                                Directory.Delete(folder, true);
+                            }
+                            catch
+                            {
+                                // Ignore cleanup errors
+                            }
+                        }
+                        tempRestoreFolder = null; // Will create new one below
                     }
                 }
+            }
+            
+            // Create new temp folder if none exists or user chose not to resume
+            if (tempRestoreFolder == null)
+            {
+                string restoreId = Guid.NewGuid().ToString();
+                tempRestoreFolder = Path.Combine(destinationDirectory, ".BackupRestore_" + restoreId);
+                
+                if (!Directory.Exists(tempRestoreFolder))
+                    Directory.CreateDirectory(tempRestoreFolder);
             }
             
             // Create a new independent restore service for this window
@@ -345,6 +483,8 @@ namespace gitstylebackupexplorer
                 _versionReader = new BackupVersionReader(backupVersionFolderPath);
                 _restoreService = new ResumableRestoreService(backupFilesFolderPath, backupVersionFolderPath);
 
+                // Enable Resume from Folder now that backup is loaded
+                resumeFromFolderToolStripMenuItem.Enabled = true;
 
                 LastNodeClick = null;
 

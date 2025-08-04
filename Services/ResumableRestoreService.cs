@@ -169,6 +169,19 @@ namespace gitstylebackupexplorer.Services
                 
                 if (completedFiles.Contains(fileInfo.Hash))
                 {
+                    // File already completed, but still increment counter for accurate progress reporting
+                    processedFiles++;
+                    
+                    // Report progress for skipped file
+                    OnProgressChanged(new RestoreProgress
+                    {
+                        TotalFiles = totalFiles,
+                        ProcessedFiles = processedFiles,
+                        CurrentPhase = RestorePhase.Phase1Started,
+                        CurrentFileName = Path.GetFileName(fileInfo.FilePath),
+                        StatusMessage = $"Phase 1: Copying files to temp location ({processedFiles}/{totalFiles}) - Skipped (already completed)"
+                    });
+                    
                     continue; // Skip already processed files
                 }
 
@@ -221,6 +234,19 @@ namespace gitstylebackupexplorer.Services
                 
                 if (completedFiles.Contains(fileInfo.Hash))
                 {
+                    // File already completed, but still increment counter for accurate progress reporting
+                    processedFiles++;
+                    
+                    // Report progress for skipped file
+                    OnProgressChanged(new RestoreProgress
+                    {
+                        TotalFiles = totalFiles,
+                        ProcessedFiles = processedFiles,
+                        CurrentPhase = RestorePhase.Phase2Started,
+                        CurrentFileName = Path.GetFileName(fileInfo.FilePath),
+                        StatusMessage = $"Phase 2: Unzipping files to destination ({processedFiles}/{totalFiles}) - Skipped (already completed)"
+                    });
+                    
                     continue; // Skip already processed files
                 }
 

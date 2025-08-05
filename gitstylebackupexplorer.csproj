@@ -63,6 +63,10 @@
     <Compile Include="Form1.Designer.cs">
       <DependentUpon>Form1.cs</DependentUpon>
     </Compile>
+    <Compile Include="EncryptionConfigForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Models\EncryptionConfig.cs" />
     <Compile Include="Models\FileRestoreInfo.cs" />
     <Compile Include="Models\RestoreProgress.cs" />
     <Compile Include="Models\RestoreResult.cs" />
@@ -72,6 +76,7 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="Services\BackupVersionReader.cs" />
+    <Compile Include="Services\EncryptionService.cs" />
     <Compile Include="Services\ResumableRestoreService.cs" />
     <Compile Include="Services\RestoreStatusTracker.cs" />
     <Compile Include="Utilities\FileNameComparer.cs" />

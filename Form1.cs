@@ -24,6 +24,7 @@ namespace gitstylebackupexplorer
         
         private ResumableRestoreService _restoreService;
         private BackupVersionReader _versionReader;
+        private EncryptionConfig _encryptionConfig = new EncryptionConfig();
 
         public Form1()
         {
@@ -140,7 +141,7 @@ namespace gitstylebackupexplorer
                     if (result == DialogResult.Yes)
                     {
                         // Create a new independent restore service for this window
-                        var independentRestoreService = new ResumableRestoreService(backupFilesFolderPath, backupVersionFolderPath);
+                        var independentRestoreService = new ResumableRestoreService(backupFilesFolderPath, backupVersionFolderPath, _encryptionConfig);
                         
                         // Launch the restore window in resume mode
                         var restoreWindow = new RestoreWindow(independentRestoreService, status.NodeVersion, 
@@ -158,20 +159,64 @@ namespace gitstylebackupexplorer
 
         private void exitToolStripMenuItem_Click(object sender, EventArgs e)
         {
-            //exit
-            Application.Exit();
+            this.Close();
+        }
+
+        /// <summary>
+        /// Opens the encryption configuration dialog
+        /// </summary>
+        public void ConfigureEncryption()
+        {
+            using (var configForm = new EncryptionConfigForm(_encryptionConfig))
+            {
+                if (configForm.ShowDialog() == DialogResult.OK)
+                {
+                    _encryptionConfig = configForm.EncryptionConfig;
+                    MessageBox.Show($"Encryption configuration updated: {_encryptionConfig.GetEncryptionDescription()}", 
+                        "Encryption Configuration", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            }
         }
 
         private void DecompressToFile(string source, string dest)
         {
-            using (System.IO.Compression.GZipStream stream = new System.IO.Compression.GZipStream(new System.IO.FileStream(source, System.IO.FileMode.Open), System.IO.Compression.CompressionMode.Decompress))
-            using (System.IO.FileStream outstream = new System.IO.FileStream(dest, System.IO.FileMode.Create))
-            {
-                stream.CopyTo(outstream);
+            DecompressToFileWithEncryption(source, dest, _encryptionConfig.GetEncryptionKey());
+        }
 
-                outstream.Flush();
-                outstream.Close();
-                stream.Close();
+        private void DecompressToFileWithEncryption(string source, string dest, byte[] encryptionKey)
+        {
+            try
+            {
+                // Read the source file
+                byte[] sourceData = File.ReadAllBytes(source);
+                
+                // Check if encryption is configured and if the file appears to be encrypted
+                bool shouldDecrypt = encryptionKey != null && EncryptionService.IsDataEncrypted(sourceData);
+                
+                byte[] dataToDecompress;
+                
+                if (shouldDecrypt)
+                {
+                    // Decrypt the data first
+                    dataToDecompress = EncryptionService.DecryptData(sourceData, encryptionKey);
+                }
+                else
+                {
+                    // Use data as-is (unencrypted)
+                    dataToDecompress = sourceData;
+                }
+                
+                // Decompress the data
+                using (var inputStream = new MemoryStream(dataToDecompress))
+                using (var gzipStream = new System.IO.Compression.GZipStream(inputStream, System.IO.Compression.CompressionMode.Decompress))
+                using (var outputStream = new FileStream(dest, FileMode.Create))
+                {
+                    gzipStream.CopyTo(outputStream);
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"Failed to decompress file {source}: {ex.Message}", ex);
             }
         }
 
@@ -391,7 +436,7 @@ namespace gitstylebackupexplorer
             }
             
             // Create a new independent restore service for this window
-            var independentRestoreService = new ResumableRestoreService(backupFilesFolderPath, backupVersionFolderPath);
+            var independentRestoreService = new ResumableRestoreService(backupFilesFolderPath, backupVersionFolderPath, _encryptionConfig);
             
             // Launch the restore window with its own service instance
             var restoreWindow = new RestoreWindow(independentRestoreService, nodeVersion, nodeDirPath, nodeFileName, 
@@ -481,7 +526,7 @@ namespace gitstylebackupexplorer
 
                 // Initialize services
                 _versionReader = new BackupVersionReader(backupVersionFolderPath);
-                _restoreService = new ResumableRestoreService(backupFilesFolderPath, backupVersionFolderPath);
+                _restoreService = new ResumableRestoreService(backupFilesFolderPath, backupVersionFolderPath, _encryptionConfig);
 
                 // Enable Resume from Folder now that backup is loaded
                 resumeFromFolderToolStripMenuItem.Enabled = true;

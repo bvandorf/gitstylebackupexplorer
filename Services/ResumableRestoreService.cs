@@ -15,15 +15,17 @@ namespace gitstylebackupexplorer.Services
     {
         private readonly string _backupFilesFolderPath;
         private readonly BackupVersionReader _versionReader;
+        private readonly EncryptionConfig _encryptionConfig;
         private volatile bool _isPaused = false;
         private readonly object _pauseLock = new object();
 
         public event EventHandler<RestoreProgressEventArgs> ProgressChanged;
 
-        public ResumableRestoreService(string backupFilesFolderPath, string backupVersionFolderPath)
+        public ResumableRestoreService(string backupFilesFolderPath, string backupVersionFolderPath, EncryptionConfig encryptionConfig = null)
         {
             _backupFilesFolderPath = backupFilesFolderPath;
             _versionReader = new BackupVersionReader(backupVersionFolderPath);
+            _encryptionConfig = encryptionConfig ?? new EncryptionConfig();
         }
 
         /// <summary>
@@ -288,11 +290,43 @@ namespace gitstylebackupexplorer.Services
 
         private void DecompressToFile(string source, string dest)
         {
-            using (var stream = new GZipStream(new FileStream(source, FileMode.Open), CompressionMode.Decompress))
-            using (var outstream = new FileStream(dest, FileMode.Create))
+            DecompressToFileWithEncryption(source, dest, _encryptionConfig.GetEncryptionKey());
+        }
+
+        private void DecompressToFileWithEncryption(string source, string dest, byte[] encryptionKey)
+        {
+            try
             {
-                stream.CopyTo(outstream);
-                outstream.Flush();
+                // Read the source file
+                byte[] sourceData = File.ReadAllBytes(source);
+                
+                // Check if encryption is configured and if the file appears to be encrypted
+                bool shouldDecrypt = encryptionKey != null && EncryptionService.IsDataEncrypted(sourceData);
+                
+                byte[] dataToDecompress;
+                
+                if (shouldDecrypt)
+                {
+                    // Decrypt the data first
+                    dataToDecompress = EncryptionService.DecryptData(sourceData, encryptionKey);
+                }
+                else
+                {
+                    // Use data as-is (unencrypted)
+                    dataToDecompress = sourceData;
+                }
+                
+                // Decompress the data
+                using (var inputStream = new MemoryStream(dataToDecompress))
+                using (var gzipStream = new GZipStream(inputStream, CompressionMode.Decompress))
+                using (var outputStream = new FileStream(dest, FileMode.Create))
+                {
+                    gzipStream.CopyTo(outputStream);
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"Failed to decompress file {source}: {ex.Message}", ex);
             }
         }
 

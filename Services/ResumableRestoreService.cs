@@ -80,11 +80,39 @@ namespace gitstylebackupexplorer.Services
 
             try
             {
-                // Create or update status file
-                statusTracker.WriteRestoreStatus(nodeVersion, nodeDirPath, destinationPath, RestorePhase.Phase1Started);
+                // Check current status if resuming, otherwise start fresh
+                RestoreStatus currentStatus = null;
+                bool skipPhase1 = false;
+                
+                if (isResume && statusTracker.CanResume())
+                {
+                    currentStatus = statusTracker.GetCurrentStatus();
+                    // If Phase 1 is already complete, skip it
+                    if (currentStatus?.Status == RestorePhase.Phase1Complete || 
+                        currentStatus?.Status == RestorePhase.Phase2Started ||
+                        currentStatus?.Status == RestorePhase.Phase2Complete)
+                    {
+                        skipPhase1 = true;
+                    }
+                }
+                
+                // Only update status to Phase1Started if we're not resuming from a completed Phase 1
+                if (!skipPhase1)
+                {
+                    statusTracker.WriteRestoreStatus(nodeVersion, nodeDirPath, destinationPath, RestorePhase.Phase1Started);
+                }
 
-                // Phase 1: Extract files to temp folder with hash names
-                var phase1Result = ExecutePhase1(nodeVersion, nodeDirPath, tempRestoreFolder, statusTracker, isResume, cancellationToken);
+                // Phase 1: Extract files to temp folder with hash names (skip if already complete)
+                RestoreResult phase1Result;
+                if (skipPhase1)
+                {
+                    // Phase 1 already complete, create success result
+                    phase1Result = RestoreResult.CreateSuccess();
+                }
+                else
+                {
+                    phase1Result = ExecutePhase1(nodeVersion, nodeDirPath, tempRestoreFolder, statusTracker, isResume, cancellationToken);
+                }
                 
                 if (phase1Result.Success)
                 {

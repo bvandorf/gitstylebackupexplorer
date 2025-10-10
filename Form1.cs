@@ -25,13 +25,18 @@ namespace gitstylebackupexplorer
         private ResumableRestoreService _restoreService;
         private BackupVersionReader _versionReader;
         private EncryptionConfig _encryptionConfig = new EncryptionConfig();
+        
+        // Version file caching for improved performance
+        private Dictionary<string, List<string>> _versionFileCache = new Dictionary<string, List<string>>();
+        private string _lastCachedVersion = "";
+        private readonly object _cacheLock = new object();
 
         public Form1()
         {
             InitializeComponent();
             
-            // Initially disable Resume from Folder until backup is loaded
-            resumeFromFolderToolStripMenuItem.Enabled = false;
+            // Resume from Folder is now enabled by default since it works independently
+            resumeFromFolderToolStripMenuItem.Enabled = true;
         }
 
         private void Form1_Load(object sender, EventArgs e)
@@ -83,27 +88,70 @@ namespace gitstylebackupexplorer
                     }
                     else
                     {
-                        // Multiple restore folders found, let user choose
-                        var folderNames = restoreFolders.Select(Path.GetFileName).ToArray();
+                        // Multiple restore folders found, let user choose with detailed information
+                        var restoreInfoList = new List<string>();
+                        var restoreStatusList = new List<RestoreStatus>();
+                        
+                        foreach (var folder in restoreFolders)
+                        {
+                            var tracker = new RestoreStatusTracker(folder);
+                            var folderStatus = tracker.GetCurrentStatus();
+                            
+                            if (folderStatus != null)
+                            {
+                                var displayText = $"{Path.GetFileName(folder)} - {folderStatus.Status} - {folderStatus.Timestamp:MM/dd HH:mm} - {Path.GetFileName(folderStatus.DestinationPath)}";
+                                restoreInfoList.Add(displayText);
+                                restoreStatusList.Add(folderStatus);
+                            }
+                            else
+                            {
+                                var displayText = $"{Path.GetFileName(folder)} - Unknown Status";
+                                restoreInfoList.Add(displayText);
+                                restoreStatusList.Add(null);
+                            }
+                        }
                         
                         using (var selectionForm = new Form())
                         {
-                            selectionForm.Text = "Select Restore Operation";
-                            selectionForm.Size = new Size(400, 200);
+                            selectionForm.Text = "Select Restore Operation to Resume";
+                            selectionForm.Size = new Size(600, 300);
                             selectionForm.StartPosition = FormStartPosition.CenterParent;
                             
+                            var label = new Label();
+                            label.Text = "Select a restore operation to resume:";
+                            label.Dock = DockStyle.Top;
+                            label.Height = 25;
+                            label.Padding = new Padding(5);
+                            
                             var listBox = new ListBox();
-                            listBox.Items.AddRange(folderNames);
+                            listBox.Items.AddRange(restoreInfoList.ToArray());
                             listBox.Dock = DockStyle.Fill;
                             listBox.SelectedIndex = 0;
                             
+                            var buttonPanel = new Panel();
+                            buttonPanel.Height = 40;
+                            buttonPanel.Dock = DockStyle.Bottom;
+                            
                             var okButton = new Button();
-                            okButton.Text = "OK";
+                            okButton.Text = "Resume Selected";
                             okButton.DialogResult = DialogResult.OK;
-                            okButton.Dock = DockStyle.Bottom;
+                            okButton.Size = new Size(120, 30);
+                            okButton.Anchor = AnchorStyles.Right | AnchorStyles.Top;
+                            okButton.Location = new Point(buttonPanel.Width - 130, 5);
+                            
+                            var cancelButton = new Button();
+                            cancelButton.Text = "Cancel";
+                            cancelButton.DialogResult = DialogResult.Cancel;
+                            cancelButton.Size = new Size(80, 30);
+                            cancelButton.Anchor = AnchorStyles.Right | AnchorStyles.Top;
+                            cancelButton.Location = new Point(buttonPanel.Width - 220, 5);
+                            
+                            buttonPanel.Controls.Add(okButton);
+                            buttonPanel.Controls.Add(cancelButton);
                             
                             selectionForm.Controls.Add(listBox);
-                            selectionForm.Controls.Add(okButton);
+                            selectionForm.Controls.Add(buttonPanel);
+                            selectionForm.Controls.Add(label);
                             
                             if (selectionForm.ShowDialog() == DialogResult.OK && listBox.SelectedIndex >= 0)
                             {
@@ -140,8 +188,81 @@ namespace gitstylebackupexplorer
                         
                     if (result == DialogResult.Yes)
                     {
-                        // Create a new independent restore service for this window
-                        var independentRestoreService = new ResumableRestoreService(backupFilesFolderPath, backupVersionFolderPath, _encryptionConfig);
+                        // Auto-detect backup source from restore folder location
+                        string detectedBackupFolder = null;
+                        string detectedBackupFilesFolder = null;
+                        string detectedBackupVersionFolder = null;
+                        
+                        // Try to find backup folder by looking for common backup structures
+                        var restoreParentDir = Directory.GetParent(selectedRestoreFolder)?.FullName;
+                        if (restoreParentDir != null)
+                        {
+                            // Look for backup structure in parent directories
+                            var currentDir = new DirectoryInfo(restoreParentDir);
+                            while (currentDir != null && detectedBackupFolder == null)
+                            {
+                                // Check if this directory contains backup structure (Files and Version folders)
+                                var filesDir = Path.Combine(currentDir.FullName, "Files");
+                                var versionDir = Path.Combine(currentDir.FullName, "Version");
+                                
+                                if (Directory.Exists(filesDir) && Directory.Exists(versionDir))
+                                {
+                                    detectedBackupFolder = currentDir.FullName;
+                                    detectedBackupFilesFolder = filesDir;
+                                    detectedBackupVersionFolder = versionDir;
+                                    break;
+                                }
+                                
+                                currentDir = currentDir.Parent;
+                            }
+                        }
+                        
+                        // If auto-detection failed, ask user to locate backup folder
+                        if (detectedBackupFolder == null)
+                        {
+                            var result2 = MessageBox.Show(
+                                "Could not auto-detect the backup source folder.\n\n" +
+                                "Would you like to manually select the backup folder?",
+                                "Backup Source Not Found",
+                                MessageBoxButtons.YesNo,
+                                MessageBoxIcon.Question);
+                                
+                            if (result2 == DialogResult.Yes)
+                            {
+                                FolderBrowserDialog backupDialog = new FolderBrowserDialog();
+                                backupDialog.Description = "Select the backup folder containing 'Files' and 'Version' subdirectories";
+                                
+                                if (backupDialog.ShowDialog() == DialogResult.OK)
+                                {
+                                    var filesDir = Path.Combine(backupDialog.SelectedPath, "Files");
+                                    var versionDir = Path.Combine(backupDialog.SelectedPath, "Version");
+                                    
+                                    if (Directory.Exists(filesDir) && Directory.Exists(versionDir))
+                                    {
+                                        detectedBackupFolder = backupDialog.SelectedPath;
+                                        detectedBackupFilesFolder = filesDir;
+                                        detectedBackupVersionFolder = versionDir;
+                                    }
+                                    else
+                                    {
+                                        MessageBox.Show("Selected folder does not contain valid backup structure (Files and Version folders).",
+                                            "Invalid Backup Folder", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                                        return;
+                                    }
+                                }
+                                else
+                                {
+                                    return; // User cancelled
+                                }
+                            }
+                            else
+                            {
+                                return; // User chose not to manually select
+                            }
+                        }
+                        
+                        // Create a new independent restore service with detected backup paths
+                        var independentRestoreService = new ResumableRestoreService(detectedBackupFilesFolder, detectedBackupVersionFolder, _encryptionConfig);
                         
                         // Launch the restore window in resume mode
                         var restoreWindow = new RestoreWindow(independentRestoreService, status.NodeVersion, 
@@ -379,49 +500,61 @@ namespace gitstylebackupexplorer
             string destinationDirectory = string.IsNullOrEmpty(nodeFileName) ? destinationPath : Path.GetDirectoryName(destinationPath);
             string tempRestoreFolder = null;
             
-            // Check for existing incomplete restore for directory operations first
-            if (string.IsNullOrEmpty(nodeFileName) && !isResume)
+            // For new restores, clean up old/stale restore folders (older than 24 hours)
+            // This prevents interfering with active restore operations in other windows
+            if (!isResume)
             {
-                // Look for existing .BackupRestore_ folders in the destination directory
-                var existingRestoreFolders = Directory.GetDirectories(destinationDirectory, ".BackupRestore_*")
-                    .Where(dir => 
-                    {
-                        var statusTracker = new RestoreStatusTracker(dir);
-                        return statusTracker.CanResume();
-                    })
-                    .ToArray();
-                    
-                if (existingRestoreFolders.Length > 0)
+                try
                 {
-                    // Use the most recent existing restore folder
-                    tempRestoreFolder = existingRestoreFolders
-                        .OrderByDescending(dir => Directory.GetCreationTime(dir))
-                        .First();
-                        
-                    var result = MessageBox.Show(
-                        $"Found incomplete restore operation in:\n{Path.GetFileName(tempRestoreFolder)}\n\nDo you want to resume it?", 
-                        "Resume Restore", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                    var existingRestoreFolders = Directory.GetDirectories(destinationDirectory, ".BackupRestore_*");
+                    var staleThreshold = DateTime.Now.AddHours(-24);
+                    int cleanedCount = 0;
+                    int failedCount = 0;
                     
-                    if (result == DialogResult.Yes)
+                    foreach (var folder in existingRestoreFolders)
                     {
-                        isResume = true;
-                    }
-                    else
-                    {
-                        // Clean up existing and create fresh
-                        foreach (var folder in existingRestoreFolders)
+                        try
                         {
-                            try
+                            var folderInfo = new DirectoryInfo(folder);
+                            
+                            // Only delete folders older than 24 hours
+                            if (folderInfo.LastWriteTime < staleThreshold)
                             {
-                                Directory.Delete(folder, true);
-                            }
-                            catch
-                            {
-                                // Ignore cleanup errors
+                                // Additional check: verify the folder isn't actively being used
+                                var statusTracker = new RestoreStatusTracker(folder);
+                                var status = statusTracker.GetCurrentStatus();
+                                
+                                // Only delete if status is old or can't be read
+                                if (status == null || status.Timestamp < staleThreshold)
+                                {
+                                    Directory.Delete(folder, true);
+                                    cleanedCount++;
+                                }
                             }
                         }
-                        tempRestoreFolder = null; // Will create new one below
+                        catch
+                        {
+                            // Count failures but don't block the restore operation
+                            failedCount++;
+                        }
                     }
+                    
+                    // Inform user if cleanup occurred
+                    if (cleanedCount > 0)
+                    {
+                        string message = $"Cleaned up {cleanedCount} old restore folder(s).";
+                        if (failedCount > 0)
+                        {
+                            message += $" ({failedCount} could not be removed - may be in use)";
+                        }
+                        // Log to console for debugging (won't block UI)
+                        System.Diagnostics.Debug.WriteLine(message);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Don't let cleanup errors prevent the restore operation
+                    System.Diagnostics.Debug.WriteLine($"Error during restore folder cleanup: {ex.Message}");
                 }
             }
             
@@ -513,12 +646,63 @@ namespace gitstylebackupexplorer
             this.Text = e.Progress.StatusMessage;
             Application.DoEvents();
         }
+        
+        /// <summary>
+        /// Gets cached version file data, reading from disk only if not already cached
+        /// </summary>
+        /// <param name="nodeVersion">The backup version to get data for</param>
+        /// <returns>List of lines from the version file</returns>
+        private List<string> GetCachedVersionFileData(string nodeVersion)
+        {
+            lock (_cacheLock)
+            {
+                // Check if we already have this version cached
+                if (_versionFileCache.ContainsKey(nodeVersion))
+                {
+                    return _versionFileCache[nodeVersion];
+                }
+                
+                // Not cached, need to read from disk
+                try
+                {
+                    string versionFilePath = backupVersionFolderPath + "\\" + nodeVersion;
+                    var lines = new List<string>();
+                    
+                    using (var verFile = new System.IO.StreamReader(versionFilePath))
+                    {
+                        string line;
+                        while ((line = verFile.ReadLine()) != null)
+                        {
+                            lines.Add(line);
+                        }
+                    }
+                    
+                    // Cache the data for future use
+                    _versionFileCache[nodeVersion] = lines;
+                    _lastCachedVersion = nodeVersion;
+                    
+                    return lines;
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Error reading version file {nodeVersion}: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return new List<string>();
+                }
+            }
+        }
 
 
         private void PopulateTree(string backupFolder)
         {
             try
             {
+                // Clear version file cache when opening new backup to prevent memory growth
+                lock (_cacheLock)
+                {
+                    _versionFileCache.Clear();
+                    _lastCachedVersion = "";
+                }
+                
                 backupFolderPath = backupFolder;
                 backupInUseFile = backupFolderPath + "\\InUse.txt";
                 backupVersionFolderPath = backupFolderPath + "\\Version";
@@ -598,13 +782,13 @@ namespace gitstylebackupexplorer
                 tn = tn.Parent;
             }
 
+            // Get cached version file data (only reads from disk if not already cached)
+            var versionLines = GetCachedVersionFileData(nodeVersion);
+            
             //fill only the next row of items
             string sfile = "";
 
-
-            System.IO.StreamReader verFile = new System.IO.StreamReader(backupVersionFolderPath + "\\" + nodeVersion);
-            string line = "";
-            while ((line = verFile.ReadLine()) != null)
+            foreach (string line in versionLines)
             {
                 if (line.StartsWith("FILE:"))
                 {
@@ -638,7 +822,6 @@ namespace gitstylebackupexplorer
                     sfile = "";
                 }
             }
-            verFile.Close();
         }
 
         private void treeView1_NodeMouseClick(object sender, TreeNodeMouseClickEventArgs e)

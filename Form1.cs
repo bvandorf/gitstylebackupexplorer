@@ -365,53 +365,81 @@ namespace gitstylebackupexplorer
 
                 if (nodeFileName != "")
                 {
-                    //file
-                    string sfile = "";
-                    string shash = "";
-                    DateTime moddate = new DateTime();
-                    long lsize = 0;
-                    string ssize = "";
-
-                    System.IO.StreamReader verFile = new System.IO.StreamReader(backupVersionFolderPath + "\\" + nodeVersion);
-                    bool bfound = false;
-                    string line = "";
-                    while ((line = verFile.ReadLine()) != null)
+                    //file - use BackupVersionReader to get complete snapshot view
+                    var fileInfo = _versionReader.GetSingleFileInfo(nodeVersion, nodeDirPath, nodeFileName);
+                    
+                    if (fileInfo != null)
                     {
-                        if (line.StartsWith("FILE:"))
+                        // Get additional metadata by reading version files
+                        DateTime moddate = new DateTime();
+                        long lsize = 0;
+                        
+                        // Search through version history to find metadata (MODDATE, SIZE)
+                        var allVersionFiles = System.IO.Directory.GetFiles(backupVersionFolderPath)
+                            .Where(f => !f.EndsWith(".tmp"))
+                            .OrderBy(f => f, new FileNameComparer())
+                            .ToList();
+                        
+                        int targetIndex = -1;
+                        for (int i = 0; i < allVersionFiles.Count; i++)
                         {
-                            if (bfound)
+                            if (System.IO.Path.GetFileName(allVersionFiles[i]) == nodeVersion)
+                            {
+                                targetIndex = i;
                                 break;
+                            }
+                        }
+                        
+                        // Search backward through versions to find metadata
+                        bool foundMetadata = false;
+                        for (int i = targetIndex; i >= 0 && !foundMetadata; i--)
+                        {
+                            using (var verFile = new System.IO.StreamReader(allVersionFiles[i]))
+                            {
+                                string line;
+                                bool inTargetFile = false;
+                                
+                                while ((line = verFile.ReadLine()) != null)
+                                {
+                                    if (line.StartsWith("FILE:"))
+                                    {
+                                        if (foundMetadata)
+                                            break;
+                                            
+                                        string sfile = line.Substring("FILE:".Length);
+                                        inTargetFile = (sfile == fileInfo.FilePath);
+                                    }
+                                    else if (inTargetFile)
+                                    {
+                                        if (line.StartsWith("MODDATE:"))
+                                        {
+                                            moddate = DateTime.Parse(line.Substring("MODDATE:".Length));
+                                        }
+                                        else if (line.StartsWith("SIZE:"))
+                                        {
+                                            string ssize = line.Substring("SIZE:".Length).Replace(".", "");
+                                            lsize = long.Parse(ssize);
+                                        }
+                                        else if (line.StartsWith("HASH:"))
+                                        {
+                                            // Found all metadata for this file
+                                            foundMetadata = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
 
-                            sfile = line.Substring(("FILE:").Length);
-                            if (sfile == nodeDirPath + "\\" + nodeFileName)
-                                bfound = true;
-                        }
-                        else if (line.StartsWith("MODDATE:"))
-                        {
-                            moddate = DateTime.Parse(line.Substring(("MODDATE:").Length));
-                        }
-                        else if (line.StartsWith("SIZE:"))
-                        {
-                            ssize = line.Substring(("SIZE:").Length);
-                            ssize = ssize.Replace(".", "");
-                            lsize = long.Parse(ssize);
-                        }
-                        else if (line.StartsWith("HASH:"))
-                        {
-                            shash = line.Substring(("HASH:").Length);
-                        }
-                    }
-                    verFile.Close();
-
-                    if (bfound)
-                    {
                         string sinfo = "";
-                        sinfo += "Name: " + sfile + "\n";
+                        sinfo += "Name: " + fileInfo.FilePath + "\n";
                         sinfo += "Directory: " + nodeDirPath + "\n";
                         sinfo += "Version: " + nodeVersion + "\n";
-                        sinfo += "Date Modified: " + moddate.ToShortDateString() + " " + moddate.ToLongTimeString() + "\n";
-                        sinfo += "Size: " + SizeSuffix(lsize) + " \n";
-                        sinfo += "Hash: " + shash + "\n";
+                        if (moddate != DateTime.MinValue)
+                            sinfo += "Date Modified: " + moddate.ToShortDateString() + " " + moddate.ToLongTimeString() + "\n";
+                        if (lsize > 0)
+                            sinfo += "Size: " + SizeSuffix(lsize) + " \n";
+                        sinfo += "Hash: " + fileInfo.Hash + "\n";
 
                         MessageBox.Show(sinfo, "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     }
